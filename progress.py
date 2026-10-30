@@ -44,21 +44,3 @@ def build_question_history(history):
 
     return [question for question in questions if question["answer"] is not None]
 
-
-def build_scoreboard(history):
-    counts = {topic: 0 for topic in TOPICS}
-    counts[UNCLASSIFIED_TOPIC] = 0
-    for question in build_question_history(history):
-        counts[question["topic"]] = counts.get(question["topic"], 0) + 1
-
-    rows = [
-        "### 📊 TIẾN TRÌNH CÂU HỎI QA & SDET",
-        "",
-        "| Chủ đề | Số câu hỏi đã hỏi |",
-        "| :--- | :---: |",
-    ]
-    for topic in TOPICS:
-        rows.append(f"| **{topic}** | {counts[topic]} |")
-    if counts[UNCLASSIFIED_TOPIC]:
-        rows.append(f"| **{UNCLASSIFIED_TOPIC}** | {counts[UNCLASSIFIED_TOPIC]} |")
-    return "\n".join(rows)

@@ -14,7 +14,6 @@ from interview import generate_response, parse_feedback
 from progress import (
     UNCLASSIFIED_TOPIC,
     build_question_history,
-    build_scoreboard,
     topic_for_question,
 )
 from settings import APP_DIR, TOPICS, WELCOME_MESSAGE
@@ -133,19 +132,15 @@ def render_feedback(feedback):
     st.markdown("### Memory Hacks (Mẹo ghi nhớ)")
     st.markdown(feedback["memory_hack"])
 
-    topic = feedback["topic"]
-    scoreboard = build_scoreboard(st.session_state.assistant_history)
-    st.markdown(scoreboard)
     st.markdown("### Câu hỏi tiếp theo")
     st.markdown(feedback["next_question"])
 
     return (
         f"Evaluation Result: {verdict_label}\n\n"
-        f"**Chủ đề:** {topic}\n\n"
+        f"**Chủ đề:** {feedback['topic']}\n\n"
         f"### Detailed Analysis\n{feedback['detailed_analysis']}\n\n"
         f"### Best Practice Answer\n{feedback['best_practice_answer']}\n\n"
         f"### Memory Hacks\n{feedback['memory_hack']}\n\n"
-        f"{scoreboard}\n\n"
         f"### Câu hỏi tiếp theo\n{feedback['next_question']}"
     )
 
