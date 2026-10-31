@@ -10,13 +10,19 @@ from assistant_history import (
     remove_unanswered_questions,
     save_assistant_history,
 )
-from interview import generate_response, parse_feedback
+from interview import generate_response, parse_feedback, parse_question
 from progress import (
     UNCLASSIFIED_TOPIC,
     build_question_history,
-    topic_for_question,
 )
-from settings import APP_DIR, TOPICS, WELCOME_MESSAGE
+from settings import (
+    APP_DIR,
+    SCENARIO_DEVELOPER_TOPIC,
+    SCENARIO_QA_TOPIC,
+    SCENARIO_TOPICS,
+    TOPICS,
+    WELCOME_MESSAGE,
+)
 
 
 load_dotenv(APP_DIR / ".env")
@@ -66,7 +72,7 @@ def persist_history_entry(content, kind, topic=None, question_id=None):
         return None
 
 
-def persist_answered_question(question, answer, topic):
+def persist_answered_question(question, answer, topic, difficulty=None):
     if st.session_state.assistant_history_error:
         st.error(
             "Câu hỏi và câu trả lời chỉ còn trong phiên hiện tại vì file lịch sử "
@@ -75,7 +81,7 @@ def persist_answered_question(question, answer, topic):
         return None
     try:
         history, question_id = append_answered_question(
-            st.session_state.assistant_history, question, answer, topic
+            st.session_state.assistant_history, question, answer, topic, difficulty
         )
         st.session_state.assistant_history = history
         return question_id
@@ -103,9 +109,16 @@ def render_topic_questions(topic, questions):
                 st.rerun()
 
 
-def request_gemini(messages, prompt, structured_feedback=False):
+def request_gemini(
+    messages,
+    prompt,
+    structured_feedback=False,
+    structured_question=False,
+):
     try:
-        return generate_response(messages, prompt, structured_feedback)
+        return generate_response(
+            messages, prompt, structured_feedback, structured_question
+        )
     except APIError as error:
         if error.code == 504:
             st.error(
@@ -133,7 +146,12 @@ def render_feedback(feedback):
     st.markdown(feedback["memory_hack"])
 
     st.markdown("### Câu hỏi tiếp theo")
-    st.markdown(feedback["next_question"])
+    next_question = format_question(
+        feedback["next_topic"],
+        feedback["next_difficulty"],
+        feedback["next_question"],
+    )
+    st.markdown(next_question)
 
     return (
         f"Evaluation Result: {verdict_label}\n\n"
@@ -141,7 +159,15 @@ def render_feedback(feedback):
         f"### Detailed Analysis\n{feedback['detailed_analysis']}\n\n"
         f"### Best Practice Answer\n{feedback['best_practice_answer']}\n\n"
         f"### Memory Hacks\n{feedback['memory_hack']}\n\n"
-        f"### Câu hỏi tiếp theo\n{feedback['next_question']}"
+        f"### Câu hỏi tiếp theo\n{next_question}"
+    )
+
+
+def format_question(topic, difficulty, question):
+    return (
+        f"**Chủ đề:** {topic}\n\n"
+        f"**Độ khó:** {difficulty}\n\n"
+        f"**Câu hỏi:** {question}"
     )
 
 
@@ -165,7 +191,34 @@ with st.sidebar:
         questions_by_topic[question["topic"]].append(question)
 
     for topic in TOPICS:
+        if topic in SCENARIO_TOPICS:
+            continue
         render_topic_questions(topic, questions_by_topic[topic])
+
+    scenario_questions = [
+        question
+        for topic in SCENARIO_TOPICS
+        for question in questions_by_topic[topic]
+    ]
+    st.markdown("**Tình huống thực tế**")
+    st.caption(f"{len(scenario_questions)} câu hỏi")
+    with st.expander("Xem câu hỏi tình huống thực tế"):
+        for scenario_topic in SCENARIO_TOPICS:
+            st.markdown(f"**{scenario_topic.rsplit(' - ', 1)[-1]}**")
+            topic_questions = questions_by_topic[scenario_topic]
+            if not topic_questions:
+                st.caption("Chưa có câu hỏi.")
+            for number, question in enumerate(topic_questions, start=1):
+                title = " ".join(question["content"].split())
+                if len(title) > 68:
+                    title = f"{title[:65]}..."
+                if st.button(
+                    f"{number}. {title}",
+                    key=f"history_question_{question['id']}",
+                    width="stretch",
+                ):
+                    st.session_state.selected_history_question = question["id"]
+                    st.rerun()
 
     if questions_by_topic[UNCLASSIFIED_TOPIC]:
         render_topic_questions(
@@ -184,6 +237,9 @@ selected_question = next(
 if selected_question:
     with st.container(border=True):
         st.subheader(f"Câu hỏi · {selected_question['topic']}")
+        if selected_question["difficulty"]:
+            st.markdown(f"**Độ khó:** {selected_question['difficulty']}")
+        st.markdown("**Câu hỏi:**")
         st.markdown(selected_question["content"])
         if selected_question["answer"]:
             st.markdown("#### Câu trả lời của bạn")
@@ -202,7 +258,10 @@ if selected_view == "Lịch sử":
     else:
         for question in question_history:
             with st.expander(question["content"]):
-                st.caption(f"{question['topic']} · {question['created_at']}")
+                difficulty = question["difficulty"] or "Chưa ghi nhận"
+                st.caption(
+                    f"{question['topic']} · {difficulty} · {question['created_at']}"
+                )
                 if question["answer"]:
                     st.markdown("#### Câu trả lời của bạn")
                     st.markdown(question["answer"])
@@ -229,18 +288,38 @@ else:
         with st.spinner("Gemini đang tạo câu hỏi (tối đa 45 giây)..."):
             question = request_gemini(
                 messages,
-                "Bắt đầu hoặc tiếp tục buổi phỏng vấn. Hãy chọn ngẫu nhiên một chủ đề "
-                "QA/SDET và hỏi đúng một câu kỹ thuật. Trả lời bằng văn bản thuần, "
-                "không dùng JSON, không thêm code fence hoặc đánh giá. Chỉ ghi chủ đề, "
-                "độ khó và câu hỏi.",
+                "Bắt đầu buổi phỏng vấn. Chọn ngẫu nhiên một chủ đề kỹ thuật trong "
+                "danh sách hoặc một tình huống thực tế QA/Developer. Nếu chọn tình "
+                "huống, chỉ dùng đúng một trong hai topic 'Tình huống thực tế - QA' "
+                "hoặc 'Tình huống thực tế - Developer'. QA tập trung vào kiểm thử, "
+                "rủi ro, chất lượng và quy trình phát hành; Developer tập trung vào "
+                "phát triển, debug, hiệu năng, thiết kế hoặc tích hợp phần mềm. Tình "
+                "huống phải có bối cảnh công việc cụ thể, không phải câu hỏi định nghĩa. "
+                "Trả về đúng JSON theo schema: topic là chủ đề trong danh sách, "
+                "difficulty là độ khó, question chỉ chứa nội dung câu hỏi. Không thêm "
+                "lời dẫn hoặc câu chuyển ý.",
+                structured_question=True,
             )
         if question:
-            st.session_state.messages.append({"role": "assistant", "content": question})
-            st.session_state.pending_question = {
-                "content": question,
-                "topic": topic_for_question(question),
-            }
-            st.rerun()
+            try:
+                parsed_question = parse_question(question)
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                question_content = format_question(
+                    parsed_question["topic"],
+                    parsed_question["difficulty"],
+                    parsed_question["question"],
+                )
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": question_content}
+                )
+                st.session_state.pending_question = {
+                    "content": parsed_question["question"],
+                    "topic": parsed_question["topic"],
+                    "difficulty": parsed_question["difficulty"],
+                }
+                st.rerun()
 
     pending_question = st.session_state.get("pending_question")
     if pending_question:
@@ -255,6 +334,7 @@ else:
             pending_question["content"],
             user_input,
             pending_question["topic"],
+            pending_question.get("difficulty"),
         )
         st.session_state.pending_question = None
         with st.chat_message("user"):
@@ -262,11 +342,31 @@ else:
 
         with st.chat_message("assistant"):
             with st.spinner("Gemini đang đánh giá câu trả lời (tối đa 45 giây)..."):
+                scenario_topic = pending_question.get("topic")
+                scenario_track = {
+                    SCENARIO_QA_TOPIC: "QA",
+                    SCENARIO_DEVELOPER_TOPIC: "Developer",
+                }.get(scenario_topic)
+                evaluation_prompt = (
+                    "Đánh giá câu trả lời mới nhất của ứng viên theo skill interviewer. "
+                    "Trả về JSON theo schema; đánh giá nghiêm khắc. Câu hỏi tiếp theo "
+                    "phải có next_topic, next_difficulty và next_question riêng; "
+                    "next_question chỉ chứa nội dung câu hỏi, không có câu dẫn/chuyển ý."
+                )
+                if scenario_track:
+                    evaluation_prompt = (
+                        f"Đánh giá câu trả lời trong tình huống thực tế dành cho "
+                        f"{scenario_track}. Đánh giá cách ứng viên làm rõ vấn đề, "
+                        "ưu tiên rủi ro, lập luận kỹ thuật, cân nhắc trade-off và "
+                        "đưa ra kế hoạch xử lý khả thi; không chấm chỉ dựa trên việc "
+                        "nhắc đúng thuật ngữ. Trả về JSON theo schema. next_question "
+                        f"phải là đúng một tình huống thực tế mới thuộc topic "
+                        f"'{scenario_topic}', không chuyển sang nhánh khác. Topic "
+                        "next_topic trong JSON phải giữ đúng topic này."
+                    )
                 response_text = request_gemini(
                     st.session_state.messages,
-                    "Đánh giá câu trả lời mới nhất của ứng viên theo skill interviewer. "
-                    "Trả về JSON theo schema; đánh giá nghiêm khắc và hỏi tiếp đúng "
-                    "một câu duy nhất.",
+                    evaluation_prompt,
                     structured_feedback=True,
                 )
             if response_text:
@@ -275,6 +375,12 @@ else:
                 except ValueError as error:
                     st.error(str(error))
                 else:
+                    if scenario_track and feedback["next_topic"] != scenario_topic:
+                        st.error(
+                            "Gemini trả về câu hỏi tiếp theo không đúng nhánh tình "
+                            "huống hiện tại. Vui lòng thử lại."
+                        )
+                        st.stop()
                     rendered_response = render_feedback(feedback)
                     st.session_state.messages.append(
                         {"role": "assistant", "content": rendered_response}
@@ -287,6 +393,7 @@ else:
                         )
                     st.session_state.pending_question = {
                         "content": feedback["next_question"],
-                        "topic": topic_for_question(feedback["next_question"]),
+                        "topic": feedback["next_topic"],
+                        "difficulty": feedback["next_difficulty"],
                     }
                     st.rerun()

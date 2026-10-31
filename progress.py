@@ -1,4 +1,4 @@
-from settings import TOPICS
+from settings import SCENARIO_TOPICS, TOPICS
 
 
 UNCLASSIFIED_TOPIC = "Chưa phân loại"
@@ -6,6 +6,12 @@ UNCLASSIFIED_TOPIC = "Chưa phân loại"
 
 def topic_for_question(content):
     normalized_content = content.casefold()
+    scenario_topic = next(
+        (topic for topic in SCENARIO_TOPICS if topic.casefold() in normalized_content),
+        None,
+    )
+    if scenario_topic:
+        return scenario_topic
     return next(
         (topic for topic in TOPICS if topic.casefold() in normalized_content),
         UNCLASSIFIED_TOPIC,
@@ -27,6 +33,7 @@ def build_question_history(history):
                 "id": question_id,
                 "topic": topic,
                 "content": entry["content"],
+                "difficulty": entry.get("difficulty"),
                 "created_at": entry["created_at"],
                 "answer": None,
                 "feedback": None,
@@ -43,4 +50,3 @@ def build_question_history(history):
                 question["feedback"] = entry["content"]
 
     return [question for question in questions if question["answer"] is not None]
-

@@ -54,6 +54,14 @@ Whenever the user initiates an interview session or submits an answer, follow th
 * Ask **EXACTLY ONE (1)** technical question at a time.
 * Select questions randomly across **Group A (Level 0–8)** or **Group B (14 Enterprise Modules)**.
 * Vary the difficulty from Intermediate to Senior/Architect level.
+* Practical scenarios are a single progress milestone with only two subtopics:
+  **Tình huống thực tế - QA** (testing, quality, risk, and release decisions) and
+  **Tình huống thực tế - Developer** (implementation, debugging, performance,
+  design, and integration). Do not create practical scenarios under other topics.
+  Keep subsequent questions in the same scenario subtopic.
+* Every question, including the follow-up question in feedback, must provide three
+  separate fields: **Chủ đề**, **Độ khó**, and **Câu hỏi**. The question field
+  contains only the actual interview question, not transition text.
 
 ### 2. Strict Evaluation Criteria
 Analyze the user's response strictly:

@@ -5,7 +5,15 @@ import httpx
 from google import genai
 from google.genai import types
 
-from settings import FEEDBACK_SCHEMA, MODEL_NAME, SKILL_FILE, TOPICS, WELCOME_MESSAGE, load_system_prompt
+from settings import (
+    FEEDBACK_SCHEMA,
+    MODEL_NAME,
+    QUESTION_SCHEMA,
+    SKILL_FILE,
+    TOPICS,
+    WELCOME_MESSAGE,
+    load_system_prompt,
+)
 
 API_TIMEOUT_MS = 45_000
 MAX_CONTEXT_MESSAGES = 6
@@ -53,7 +61,12 @@ def build_gemini_contents(messages, extra_user_prompt=None):
     return contents[-MAX_CONTEXT_MESSAGES:]
 
 
-def generate_response(messages, extra_user_prompt, structured_feedback=False):
+def generate_response(
+    messages,
+    extra_user_prompt,
+    structured_feedback=False,
+    structured_question=False,
+):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise ValueError(
@@ -70,6 +83,9 @@ def generate_response(messages, extra_user_prompt, structured_feedback=False):
     if structured_feedback:
         config.response_mime_type = "application/json"
         config.response_schema = FEEDBACK_SCHEMA
+    elif structured_question:
+        config.response_mime_type = "application/json"
+        config.response_schema = QUESTION_SCHEMA
 
     client = genai.Client(
         api_key=api_key,
@@ -94,6 +110,25 @@ def generate_response(messages, extra_user_prompt, structured_feedback=False):
     return response.text.strip()
 
 
+def parse_question(response_text):
+    try:
+        question = json.loads(response_text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Gemini trả về câu hỏi không đúng JSON: {error}") from error
+
+    required = QUESTION_SCHEMA["required"]
+    if not isinstance(question, dict) or any(key not in question for key in required):
+        raise ValueError("Gemini trả về câu hỏi thiếu trường theo schema.")
+    if question["topic"] not in TOPICS:
+        raise ValueError("Gemini trả về chủ đề câu hỏi không hợp lệ.")
+    if any(
+        not isinstance(question[field], str) or not question[field].strip()
+        for field in ("difficulty", "question")
+    ):
+        raise ValueError("Gemini trả về câu hỏi thiếu độ khó hoặc nội dung.")
+    return question
+
+
 def parse_feedback(response_text):
     try:
         feedback = json.loads(response_text)
@@ -115,6 +150,7 @@ def parse_feedback(response_text):
         "detailed_analysis",
         "best_practice_answer",
         "memory_hack",
+        "next_difficulty",
         "next_question",
     )
     if any(
@@ -122,4 +158,6 @@ def parse_feedback(response_text):
         for field in text_fields
     ):
         raise ValueError("Gemini trả về nội dung feedback chưa đầy đủ.")
+    if feedback["next_topic"] not in TOPICS:
+        raise ValueError("Gemini trả về chủ đề câu hỏi tiếp theo không hợp lệ.")
     return feedback

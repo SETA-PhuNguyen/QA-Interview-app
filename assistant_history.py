@@ -35,6 +35,10 @@ def load_assistant_history():
             or not isinstance(entry.get("content"), str)
             or not isinstance(entry.get("created_at"), str)
             or ("topic" in entry and not isinstance(entry["topic"], str))
+            or (
+                "difficulty" in entry
+                and not isinstance(entry["difficulty"], str)
+            )
             or ("id" in entry and not isinstance(entry["id"], (str, int)))
             or (
                 "question_id" in entry
@@ -119,7 +123,7 @@ def append_history_entry(history, content, kind, topic=None, question_id=None):
     return save_assistant_history(updated_history)
 
 
-def append_answered_question(history, question, answer, topic):
+def append_answered_question(history, question, answer, topic, difficulty=None):
     question_id = uuid4().hex
     created_at = datetime.now(timezone.utc).astimezone().isoformat(
         timespec="seconds"
@@ -132,6 +136,7 @@ def append_answered_question(history, question, answer, topic):
             "created_at": created_at,
             "topic": topic,
             "id": question_id,
+            **({"difficulty": difficulty} if difficulty else {}),
         },
         {
             "kind": "answer",
